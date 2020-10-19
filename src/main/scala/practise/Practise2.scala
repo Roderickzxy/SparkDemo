@@ -15,7 +15,6 @@ object Practise2 {
     val lines = sc.parallelize(List(("spark", 2), ("hadoop", 6), ("hadoop", 2), ("spark", 6), ("hive", 200), ("hbase", 1)))
     val counts = lines.reduceByKey((v1, v2) => (v1 + v2) / 2)
 
-    val sortPairRdd = counts.map(v=>(v._2,v._1)).sortByKey()
-    sortPairRdd.map(v=>(v._2,v._1)).collect.foreach(println)
+    counts.sortBy(v=>v._2).collect.foreach(println)
   }
 }
