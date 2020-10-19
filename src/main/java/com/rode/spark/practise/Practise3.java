@@ -41,9 +41,11 @@ public class Practise3 {
         JavaRDD<String> lines = sc.textFile(CLASS_PATH + "practise/practise3/file1-1.txt");
         JavaPairRDD<UDFSort, Tuple2<String, Integer>> pairRDD = JavaPairRDD.fromJavaRDD(lines.map(item -> {
             String[] array = item.split(" ");
-            return new Tuple2<>(new UDFSort(array[0], Integer.valueOf(array[array.length - 1])), new Tuple2(array[0], Integer.valueOf(array[array.length - 1])));
+            return new Tuple2<>(new UDFSort(array[0],
+                    Integer.valueOf(array[array.length - 1])),
+                    new Tuple2<>(array[0], Integer.valueOf(array[array.length - 1])));
         }));
-        JavaPairRDD<String, Integer> sortResult = pairRDD.sortByKey().mapToPair(v1->v1._2);
+        JavaPairRDD<String, Integer> sortResult = pairRDD.sortByKey().mapToPair(v1 -> v1._2);
         sortResult.groupByKey().collect().forEach(System.out::println);
     }
 

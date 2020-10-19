@@ -29,12 +29,12 @@ public class Practise2 {
         SparkConf conf = new SparkConf().setAppName("practise1").setMaster("local");
         JavaSparkContext sc = new JavaSparkContext(conf);
         JavaRDD<Tuple2<String, Integer>> lines = sc.parallelize(
-                Arrays.asList(new Tuple2("spark", 2), new Tuple2("hadoop", 6), new Tuple2("hadoop", 2),
-                        new Tuple2("spark", 6), new Tuple2("hive", 200), new Tuple2("hbase", 1)));
+                Arrays.asList(new Tuple2<>("spark", 2), new Tuple2<>("hadoop", 6), new Tuple2<>("hadoop", 2),
+                        new Tuple2<>("spark", 6), new Tuple2<>("hive", 200), new Tuple2<>("hbase", 1)));
         JavaPairRDD<String, Integer> pairs = JavaPairRDD.fromJavaRDD(lines);
         JavaPairRDD<String, Integer> counts = pairs.reduceByKey((v1, v2) -> (v1 + v2) / 2);
     
-        JavaPairRDD<String, Integer> sortPairRdd = counts.mapToPair(v1 -> new Tuple2(v1._2, v1._1)).sortByKey();
-        sortPairRdd.mapToPair(v1 -> new Tuple2(v1._2, v1._1)).collect().forEach(System.out::println);
+        JavaPairRDD<Integer, String> sortPairRdd = counts.mapToPair(v1 -> new Tuple2<>(v1._2, v1._1)).sortByKey();
+        sortPairRdd.mapToPair(v1 -> new Tuple2<>(v1._2, v1._1)).collect().forEach(System.out::println);
     }
 }
