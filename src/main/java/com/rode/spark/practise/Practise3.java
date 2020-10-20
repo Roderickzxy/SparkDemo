@@ -1,16 +1,20 @@
 package com.rode.spark.practise;
 
+import static com.rode.spark.practise.PractiseConstants.CLASS_PATH;
+
+import java.util.Comparator;
+import java.util.List;
+
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+
+import com.clearspring.analytics.util.Lists;
+
 import scala.Serializable;
 import scala.Tuple2;
 import scala.math.Ordered;
-
-import java.util.Arrays;
-
-import static com.rode.spark.practise.PractiseConstants.CLASS_PATH;
 
 /**
  * 二次排序
@@ -31,9 +35,13 @@ import static com.rode.spark.practise.PractiseConstants.CLASS_PATH;
  */
 public class Practise3 {
     public static void main(String[] args) {
-        practise1();
+//        practise1();
+        practise2();
     }
-
+    
+    /**
+     * 思路：先二次排好序，再相同key聚合出list
+     */
     private static void practise1() {
         SparkConf sparkConf = new SparkConf().setAppName("practise3").setMaster("local");
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
@@ -47,6 +55,27 @@ public class Practise3 {
         }));
         JavaPairRDD<String, Integer> sortResult = pairRDD.sortByKey().mapToPair(v1 -> v1._2);
         sortResult.groupByKey().collect().forEach(System.out::println);
+    }
+    
+    /**
+     * 思路：先一次排序，再聚合出list，再对list内容做排序
+     */
+    private static void practise2(){
+        SparkConf sparkConf = new SparkConf().setAppName("practise3").setMaster("local");
+        JavaSparkContext sc = new JavaSparkContext(sparkConf);
+    
+        JavaRDD<String> lines = sc.textFile(CLASS_PATH + "practise/practise3/file1-1.txt");
+        JavaPairRDD<String, Integer> pairRdd = JavaPairRDD.fromJavaRDD(lines.map(item->{
+            String[] array = item.split(" ");
+            return new Tuple2<>(array[0], Integer.valueOf(array[array.length-1]));
+        }));
+        JavaPairRDD<String, Iterable<Integer>> pairListRdd = pairRdd.sortByKey().groupByKey();
+        pairListRdd.mapValues(e -> {
+            List<Integer> tmp = Lists.newArrayList(e);
+            tmp.sort(Comparator.comparingInt(o -> o));
+            return tmp;
+        }).collect().forEach(System.out::println);
+        
     }
 
 
