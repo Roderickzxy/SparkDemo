@@ -1,7 +1,14 @@
 package com.rode.spark.practise;
 
+import static com.rode.spark.practise.PractiseConstants.CLASS_PATH;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+
+import scala.Tuple2;
 
 /**
  * 4.TopN
@@ -24,19 +31,28 @@ import org.apache.spark.api.java.JavaSparkContext;
  *         105,1438,37,116
  *   求Top N个payment支付金额值
  *
- *  思路： 将文件内容集合到rdd，提取payment做为key，构造(payment, (orderid,userid,payment,productid))的元组
- *  再按key排序，提取._2
+ *  思路： 将文件内容集合到rdd，提取payment做为key，构造(payment, "orderid,userid,payment,productid")的元组
+ *  再按key排序，提取._2, 取前n个
  * @author zhengxinyue
  * @since 2020/10/21
  */
 public class Practise4 {
     
     public static void main(String[] args) {
-        practise1();
+        practise1(10);
     }
     
-    private static void practise1(){
+    private static void practise1(int topN){
         SparkConf sparkConf = new SparkConf().setAppName("practise4").setMaster("local");
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
+        
+        JavaRDD<String> lineRdd1 = sc.textFile(CLASS_PATH + "practise/practise4/file1-1.txt");
+        JavaRDD<String> lineRdd2 = sc.textFile(CLASS_PATH + "practise/practise4/file1-2.txt");
+        JavaRDD<String> lineRddAll = lineRdd1.union(lineRdd2);
+        
+        JavaPairRDD<Integer, String> pairRDD = lineRddAll.mapToPair(line->
+            new Tuple2<>(Integer.valueOf(line.split(",")[2]), line)
+        );
+        pairRDD.sortByKey().take(topN).forEach(item-> System.out.println(item._2));
     }
 }
