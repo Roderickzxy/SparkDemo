@@ -44,15 +44,18 @@ public class Practise4 {
     
     private static void practise1(int topN){
         SparkConf sparkConf = new SparkConf().setAppName("practise4").setMaster("local");
-        JavaSparkContext sc = new JavaSparkContext(sparkConf);
+        JavaRDD<String> lineRdd1;
+        JavaRDD<String> lineRdd2;
+        try (JavaSparkContext sc = new JavaSparkContext(sparkConf)) {
         
-        JavaRDD<String> lineRdd1 = sc.textFile(CLASS_PATH + "practise/practise4/file1-1.txt");
-        JavaRDD<String> lineRdd2 = sc.textFile(CLASS_PATH + "practise/practise4/file1-2.txt");
-        JavaRDD<String> lineRddAll = lineRdd1.union(lineRdd2);
-        
-        JavaPairRDD<Integer, String> pairRDD = lineRddAll.mapToPair(line->
-            new Tuple2<>(Integer.valueOf(line.split(",")[2]), line)
-        );
-        pairRDD.sortByKey().take(topN).forEach(item-> System.out.println(item._2));
+            lineRdd1 = sc.textFile(CLASS_PATH + "practise/practise4/file1-1.txt");
+            lineRdd2 = sc.textFile(CLASS_PATH + "practise/practise4/file1-2.txt");
+            JavaRDD<String> lineRddAll = lineRdd1.union(lineRdd2);
+    
+            JavaPairRDD<Integer, String> pairRDD = lineRddAll.mapToPair(line->
+                    new Tuple2<>(Integer.valueOf(line.split(",")[2]), line)
+            );
+            pairRDD.sortByKey().take(topN).forEach(item-> System.out.println(item._2));
+        }
     }
 }
