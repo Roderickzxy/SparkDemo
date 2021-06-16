@@ -16,7 +16,7 @@ object ReadMysqlMain {
     prop.put("password","test")
     prop.put("driver","com.mysql.jdbc.Driver")
     prop.put("dbtable","viewlog_200006")
-    prop.put("url","jdbc:mysql://test/test?characterEncoding=utf8&serverTimezone=UTC")
+    prop.put("url","jdbc:mysql://test/test1?characterEncoding=utf8&serverTimezone=UTC")
     //从数据库中加载整个表的数据
     val df=sparkSession.read.format("jdbc").options(prop).load()
     //读出来之后注册为临时表
