@@ -1,0 +1,9 @@
+hadoop@apache          200
+hive@apache            550
+yarn@apache            580
+hive@apache            159
+hadoop@apache          300
+hive@apache            258
+hadoop@apache          150
+yarn@apache            560
+yarn@apache            260
