@@ -2,22 +2,37 @@ package com.rode.scala.spark.sql
 
 import java.text.SimpleDateFormat
 import java.util.{Calendar, Date}
-
 import com.rode.scala.spark.plugin.mysql.MySQLDataFrameWriter
+import com.rode.scala.spark.sql.AggByUserDaily.jdbcReadConfig
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 
 import scala.collection.mutable.ArrayBuffer
 
-object ReadMysqlMain {
+object AggByViewlog {
   private final val monthSdf = new SimpleDateFormat("yyyy-MM")
   var sparkConf: SparkConf = _
   var sparkSession: SparkSession = _
-  val readJdbcUrl = "jdbc:mysql://url/polyv_analytics?characterEncoding=utf8&serverTimezone=UTC"
-  val readUser = "user"
-  val readPassword = "password"
-  val driver = "com.mysql.jdbc.Driver"
+  var jdbcReadConfig: scala.collection.mutable.Map[String, String] = _
+
+  def createContext():Unit={
+    sparkConf = new SparkConf().setAppName("SparkReadMysql").setMaster("local").set("spark.debug.maxToStringFields", "100")
+    val prop = sparkConf
+      .getAllWithPrefix(s"spark.mysql.pool.jdbc.")
+      .toMap
+    jdbcReadConfig = scala.collection.mutable.Map(
+      "url" -> prop.getOrElse("vod_analytics.readonly.url", "jdbc:mysql://url/polyv_analytics?useUnicode=true&characterEncoding=UTF-8&zeroDateTimeBehavior=convertToNull&autoReconnect=true&allowMultiQueries=true&useSSL=false"),
+      "user"->prop.getOrElse("vod_analytics.readonly.username", "user"),
+      "password" -> prop.getOrElse("vod_analytics.readonly.password", "password"),
+      "driver" -> prop.getOrElse("vod_analytics.readonly.driverClass", "com.mysql.jdbc.Driver")
+    )
+
+    sparkSession=SparkSession
+      .builder()
+      .config(sparkConf)//设置操作hive的url，相当于jdbc里的url
+      .getOrCreate()
+  }
 
   def main(args:Array[String]):Unit={
     if(args.length<1){
@@ -29,120 +44,61 @@ object ReadMysqlMain {
     val date :Date = sdf.parse(currentDay)
     val statsCal = Calendar.getInstance
     statsCal.setTime(date)
-    val currentMonth = monthSdf.format(statsCal.getTime)
-    statsCal.add(Calendar.DATE, statsCal.get(Calendar.DAY_OF_WEEK) * (-1) + 1)
-    val weekStart = sdf.format(statsCal.getTime)
-    statsCal.setTime(date)
-    statsCal.add(Calendar.DATE, 7 - statsCal.get(Calendar.DAY_OF_WEEK))
-    val weekEnd = sdf.format(statsCal.getTime)
-    val year = statsCal.get(Calendar.YEAR)
-    val weekOfYear = statsCal.get(Calendar.WEEK_OF_YEAR) - 1
-    val currentWeek = year+"/"+weekOfYear
 
-    sparkConf=new SparkConf().setAppName("SparkReadMysql").setMaster("local").set("spark.debug.maxToStringFields", "100")
+    // 初始化上下文
+    createContext()
 
-    sparkSession=SparkSession
-      .builder()
-      .config(sparkConf)//设置操作hive的url，相当于jdbc里的url
-      .getOrCreate()
-    val prop=scala.collection.mutable.Map[String,String]()
-    prop.put("user",readUser)
-    prop.put("password",readPassword)
-    prop.put("driver",driver)
-    prop.put("url",readJdbcUrl)
-
-    createOrReplaceTempView(prop, "viewlog_202106")
+    createOrReplaceTempView(jdbcReadConfig, "viewlog_202106")
     val viewlog = sparkSession.sql(
       getViewlogSql(currentDay)
     )
 
     val viewlogAggCol:ArrayBuffer[Column] = getViewlogAggCol()
     val viewlogAggColWithExtra = getViewlogAggColWithExtra()
-    val userAggCol = getDailyAggCol()
 
     // 汇总user_hourly_stats
-    val userHourlyDf = viewlogAggFill(viewlog.groupBy("userId", "currentDay", "currentHour")
+    val userHourlyDf = fill(viewlog.groupBy("userId", "currentDay", "currentHour")
       .agg(viewlogAggCol(0), viewlogAggCol.slice(1, viewlogAggCol.length):_*), statsCal)
-    outputDB(userHourlyDf, "temp_user_hourly")
+    outputDB(userHourlyDf, "user_hourly_stats")
 
 
     // 汇总user_daily_stats
-    val userDailyDf = viewlogAggFill(viewlog.groupBy("userId", "currentDay")
+    val userDailyDf = fill(viewlog.groupBy("userId", "currentDay")
       .agg(viewlogAggColWithExtra(0), viewlogAggColWithExtra.slice(1, viewlogAggColWithExtra.length):_*), statsCal)
-    outputDB(userDailyDf, "temp_user_daily")
-
-    // 加载user_daily_stat的数据
-    createOrReplaceTempView(prop, "user_daily_stats")
-    val userDailyStats =  sparkSession.sql(getUserDailySql(currentMonth))
-
-    // 汇总user_weekly_stats
-    val userWeeklyDf = fillWithCreatedAndLastModifed(userDailyStats.groupBy("userId", "currentWeek")
-      .agg(userAggCol(0), userAggCol.slice(1, viewlogAggColWithExtra.length):_*))
-      .withColumn("startDay", lit(weekStart))
-      .withColumn("endDay", lit(weekEnd))
-      .filter(col("currentWeek")===lit(currentWeek))
-    outputDB(userWeeklyDf, "temp_user_weekly")
-
-    // 汇总user_monthly_stats
-    val userMonthlyDf = fillWithCreatedAndLastModifed(userDailyStats.groupBy("userId", "currentMonth")
-      .agg(userAggCol(0), userAggCol.slice(1, viewlogAggColWithExtra.length):_*))
-    outputDB(userMonthlyDf, "temp_user_monthly")
+    outputDB(userDailyDf, "user_daily_stats")
 
     // 汇总domain_daily_stats
-    val aggDomainDf = viewlogAggFill(viewlog.groupBy("userId","currentDay", "domain")
+    val aggDomainDf = fill(viewlog.groupBy("userId","currentDay", "domain")
       .agg(viewlogAggCol(0), viewlogAggCol.slice(1, viewlogAggCol.length):_*), statsCal)
-    outputDB(aggDomainDf, "temp_domain_daily")
+    outputDB(aggDomainDf, "domain_daily_stats")
 
     // 汇总province_daily_stats
-    val aggProvinceDf = viewlogAggFill(viewlog.groupBy("userId","currentDay", "province")
+    val aggProvinceDf = fill(viewlog.groupBy("userId","currentDay", "province")
       .agg(viewlogAggCol(0), viewlogAggCol.slice(1, viewlogAggCol.length):_*), statsCal)
-    outputDB(aggProvinceDf, "temp_province_daily")
+    outputDB(aggProvinceDf, "province_daily_stats")
 
     // 汇总city_daily_stats
-    val aggCityDf = viewlogAggFill(viewlog.groupBy("userId","currentDay", "province", "city")
+    val aggCityDf = fill(viewlog.groupBy("userId","currentDay", "province", "city")
       .agg(viewlogAggCol(0), viewlogAggCol.slice(1, viewlogAggCol.length):_*), statsCal)
-    outputDB(aggCityDf, "temp_city_daily")
+    outputDB(aggCityDf, "city_daily_stats")
 
     // 汇总os_daily_stats
-    val aggOsDf = viewlogAggFill(viewlog.groupBy("userId","currentDay", "operatingSystem")
+    val aggOsDf = fill(viewlog.groupBy("userId","currentDay", "operatingSystem")
       .agg(viewlogAggCol(0), viewlogAggCol.slice(1, viewlogAggCol.length):_*), statsCal)
-    outputDB(aggOsDf, "temp_os_daily")
+    outputDB(aggOsDf, "os_daily_stats")
 
     // 汇总browser_daily_stats
-    val aggBrowserDf = viewlogAggFill(viewlog.groupBy("userId","currentDay", "browser")
+    val aggBrowserDf = fill(viewlog.groupBy("userId","currentDay", "browser")
       .agg(viewlogAggCol(0), viewlogAggCol.slice(1, viewlogAggCol.length):_*), statsCal)
-    outputDB(aggBrowserDf, "temp_browser_daily")
+    outputDB(aggBrowserDf, "browser_daily_stats")
 
     // 汇总video_daily_a
     val hostIdArray = Array("0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z")
     for(hostId <- hostIdArray){
-      val aggVideoDailyDf = viewlogAggFill(viewlog.filter(col("videoId").like(hostId+ "%")).groupBy("videoId","currentDay", "userId")
+      val aggVideoDailyDf = fill(viewlog.filter(col("videoId").like(hostId+ "%")).groupBy("videoId","currentDay", "userId")
         .agg(viewlogAggCol(0), viewlogAggCol.slice(1, viewlogAggCol.length):_*), statsCal)
-      outputDB(aggVideoDailyDf, "temp_video_daily_"+hostId)
-
-      // 加载user_daily_stat的数据
-      createOrReplaceTempView(prop, "user_daily_stats")
-      val videoDailyStats =  sparkSession.sql(getVideoDailySql(currentMonth, hostId))
-      // 汇总video_weekly
-      val aggVideoWeeklyDf = videoDailyStats.groupBy("videoId","currentWeek", "userId")
-        .agg(userAggCol(0), userAggCol.slice(1, userAggCol.length):_*)
-        .withColumn("startDay", lit(weekStart))
-        .withColumn("endDay", lit(weekEnd))
-        .filter(col("currentWeek")===lit(currentWeek))
-      outputDB(aggVideoWeeklyDf, "temp_video_weekly_"+hostId)
-
-      // 汇总video_monthly
-      val aggVideoMonthlyDf = videoDailyStats.groupBy("videoId","currentMonth", "userId")
-        .agg(userAggCol(0), userAggCol.slice(1, userAggCol.length):_*)
-      outputDB(aggVideoMonthlyDf, "temp_video_monthly_"+hostId)
+      outputDB(aggVideoDailyDf, "video_daily_"+hostId)
     }
-
-
-    // 测试打印
-    userHourlyDf.show()
-    userDailyDf.show()
-    userWeeklyDf.show()
-    userMonthlyDf.show()
 
     sparkSession.close()
   }
@@ -153,15 +109,7 @@ object ReadMysqlMain {
     sparkSession.read.format("jdbc").options(prop).load().createOrReplaceTempView(tableName)
   }
 
-  def viewlogAggFill(df: DataFrame, cal: Calendar): DataFrame ={
-    var resultDf = fillWithCreatedAndLastModifed(df)
-    resultDf = fillWithCurrentWeek(resultDf, cal)
-    resultDf = fillWithCurrentMonth(resultDf,cal)
-    resultDf = overWriteUniqueViewer(resultDf)
-    resultDf
-  }
-
-  def videoWeeklyAggFill(df: DataFrame, cal: Calendar): DataFrame ={
+  def fill(df: DataFrame, cal: Calendar): DataFrame ={
     var resultDf = fillWithCreatedAndLastModifed(df)
     resultDf = fillWithCurrentWeek(resultDf, cal)
     resultDf = fillWithCurrentMonth(resultDf,cal)
@@ -246,14 +194,6 @@ object ReadMysqlMain {
       " , 1, 0)) AS percent100 "+
       " from viewlog_202106 "+
       " where currentday='"+currentDay+"' and userid='9fbd596059'"
-  }
-
-  def getUserDailySql(currentMonth: String):String={
-    "select * from user_daily_stats where currentMonth='"+currentMonth+"' and userid='9fbd596059'"
-  }
-
-  def getVideoDailySql(currentMonth: String, hostId: String):String={
-    "select * from video_daily_"+hostId+" where currentMonth='"+currentMonth+"'"
   }
 
   def getViewlogAggColWithExtra():ArrayBuffer[Column]={
